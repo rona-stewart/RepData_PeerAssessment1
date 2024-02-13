@@ -1,0 +1,129 @@
+---
+title: "Reproducible Research Assignment 1"
+author: "Rona Stewart"
+date: "2024-02-12"
+output: html_document
+---
+## Introduction
+This report makes use of [data](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip) from a personal activity monitoring device. This device collects data at 5 minute intervals through out the day. The data consists of two months of data from an anonymous individual collected during the months of October and November, 2012 and include the number of steps taken in 5 minute intervals each day.
+
+The variables included in this dataset are:  
+
+- steps: Number of steps taking in a 5-minute interval (missing values are coded as **NA**)
+- date: The date on which the measurement was taken in YYYY-MM-DD format
+- interval: Identifier for the 5-minute interval in which measurement was taken
+
+The dataset is stored in a comma-separated-value (CSV) file and there are a total of 17,568 observations in this dataset.
+
+This report will set out how and when the data has been accessed, as well as the processing and analysis steps taken to answer the following questions:  
+1. What is mean total number of steps taken per day?  
+2. What is the average daily activity pattern?  
+3. Are there differences in activity patterns between weekdays and weekends?  
+
+## Loading and preprocessing the data
+
+For this assignment, the data download ([source](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip), as at `r date()`) has already been undertaken, and therefore the first step here is to read this into R, in an object I've called 'data'.  Note that I have chosen not to include the results of this stage in the output file, as this would not add to user understanding.
+
+```{r loading, results = "hide"}
+setwd ("C:\\Users\\rona_\\Documents\\Data_Science\\Module_5\\RepData_PeerAssessment1")
+
+## Unzip the dataset 
+zipfilepath <- "activity.zip"
+extracted_dir <- "Data"
+if (!dir.exists(extracted_dir)) {
+        dir.create(extracted_dir)
+}
+unzip(zipfilepath, exdir = extracted_dir)
+
+## Read the data
+data <- read.csv("\\.Data\\activity.csv")
+
+## Review summary of data (this shows 17,568 obs. of three variables)
+str(data) ## Note variable names steps (int), date (chr), interval (int)
+
+## Transform data to amend column classes
+library(dplyr)
+data <- tbl_df(data)
+data <- data %>% mutate(date = as.Date(date)) %>%
+        group_by(date)
+        
+```
+The summary of the transformed data set is as follows:
+```{r summary_transformed}
+summary(data)
+```
+
+## What is mean total number of steps taken per day?
+This chart shows the total number of steps taken each day:
+```{r histogram, report = "asis"}
+## Create a table with the total steps per day (ignoring NAs)
+spd <- summarise (data, per_day = sum(steps, na.rm=TRUE))
+
+## Plot the histogram showing the frequency of total step counts
+hist(spd$per_day, main = "Frequency of daily step counts", xlab = "Steps per day", col = "blue")
+
+```
+
+In addition, the overall mean for the number of steps per day is `r format(round(mean(spd$per_day),2), nsmall=1, big.mark=",")`, while the median is `r format(median(spd$per_day), nsmall=1, big.mark = ",")`.  
+  
+## What is the average daily activity pattern?
+```{r scatterplot_data}
+## Create a new data frame grouped by the intervals
+fivemins <- data %>% group_by(interval) %>%
+                summarise(avesteps = mean(steps, na.rm = TRUE))
+
+## Assess the maximum average steps in any given interval (for later annotation)
+max <- fivemins[(which(fivemins$avesteps==max(fivemins$avesteps))),] 
+
+## Plot a scatter
+library (ggplot2)
+g <- ggplot(fivemins, aes(interval, avesteps))
+```
+  
+The average number of steps taken in each given five minute interval can be seen over this time plot:
+```{r scatterplot_create}
+g +     geom_line() + 
+        ggtitle("Average number of steps taken per five minute interval") + xlab ("Five minute interval") + ylab  ("Average step count") +
+        geom_text(data=subset(fivemins, avesteps == (max$avesteps)), aes(interval,avesteps,label=interval, col = "red", hjust =                 -0.1, vjust = -0.1)) +
+        scale_color_manual(labels = "Five minute interval with highest average step count", values = "red") +
+        theme(legend.position = "bottom")
+
+```
+
+
+## Imputing missing values
+When imputing missing values, the strategy adopted is to take the average of that five minute interval across all days with a measured value, and impute this to the day and interval with an NA value.  Note that the "fivemins" table created in the previous step provides the average value per five minute interval disregarding NAs.
+
+``` {r imputedata}
+## First, add the average for the five minute interval as a column to the original data
+imputed_data <- mutate(data, avesteps = fivemins$avesteps)
+
+## Then replace NA data in "steps" field with corresponding data from "avesteps" field
+imputed_data$steps[is.na(imputed_data$steps)] <- round(imputed_data$avesteps[is.na(imputed_data$steps)],0)
+
+```
+
+We can now look at the histogram of the total number of steps taken each day after missing values are imputed: 
+``` {r histogram_imputed}
+## Create a table with the total steps per day (ignoring NAs)
+spdi <- summarise (imputed_data, per_day = sum(steps))
+
+## Plot the histogram showing the frequency of total step counts
+hist(spdi$per_day, main = "Frequency of step daily counts", xlab = "Steps per day", col = "skyblue3")
+```
+
+## Are there differences in activity patterns between weekdays and weekends?
+
+``` {r weekday}
+## First, the relevant weekday and category are added to the dataset, data is grouped by category and interval, then summarised 
+wd <- imputed_data %>% mutate(day = weekdays(date)) %>%
+        mutate (category = ifelse (day == "Saturday" | day == "Sunday", "weekends","weekdays")) %>%
+        group_by(category, interval) %>%
+        summarise(avesteps = mean(steps))
+
+## Then the data is plotted, using a panel plot approach
+qplot(interval, avesteps, data = wd, facets = .~wd$category, geom = "line", main = "Average number of steps taken per five minute interval", xlab = "Five minute interval", ylab = "Average step count")
+
+```
+
+From this data, it appears that the subjects step count is more spread across five minute intervals on weekend days than weekdays.
